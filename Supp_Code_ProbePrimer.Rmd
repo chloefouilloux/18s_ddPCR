@@ -1,0 +1,106 @@
+---
+title: "ddPCR_MS_SupplementalCode"
+output: html_document
+date: "2024-11-13"
+---
+Hello! Welcome to the paper for the ddPCR primers to identify (and quantify!) Schistocephalus in copepods. 
+
+This is the code for the #Supplementary Material#.
+
+#Libraries
+```{r Let's load some libraries!}
+#Libraries
+library(ggplot2)
+library(tidyverse)
+library(dplyr)
+library(readr)
+library(forcats)
+library(ggrepel)
+library(ggpubr)
+```
+
+Set theme for ggplot
+```{r Themes}
+#Theme set
+theme_set(  theme(legend.position = "none",
+                  strip.background = element_rect(fill = "White"),
+                  panel.background = element_rect(fill = "white",
+                                                  colour = "black"), 
+                  panel.grid.major = element_blank(), 
+                  panel.grid.minor = element_blank(), 
+                  text = element_text(size = 14)))
+```
+
+#Let's load some data!
+This includes one ddPCR run that looks at probe-primer specificity for both copepods (Cyclopoids/Calanoids) and Schistocephalus (solids/pungitii/cotti) across a temperature gradient.
+
+```{r Loading the data}
+specificity <- read_csv("SupplementaryMaterials_ddPCR_2025.csv") 
+
+#####################
+##Copepods Wells ###
+#####################
+#Here we can select a couple of specific wells to show that the probe-primers do not amplify Calanoids.
+cyclo <- read_csv("Cyclpoid_Example.csv")
+cyclo$Genus <- as.factor("Cyclopoida")
+
+cala <- read_csv("Calanoid_Example.csv")
+cala$Genus <- as.factor("Calanoida")
+
+cope_compare<- rbind(cyclo, cala)
+
+
+#####################
+##Worm Wells ###
+#####################
+solidus <- read_csv("Solidus_Example.csv")
+solidus$Species <- as.factor("S. solidus")
+
+cotti <- read_csv("Cotti_Example.csv")
+cotti$Species <- as.factor("S. cotti")
+
+pungitii <- read_csv("Pungitii_Example.csv")
+pungitii$Species <- as.factor("S. pungitii")
+
+worm_compare<- rbind(solidus, pungitii, cotti)
+
+```
+
+#Wrangling data
+```{rProbePrimer Specificity}
+copes <- specificity %>%
+  filter(str_detect(Sample, "calanoid|cyclopoid"), 
+         Target == "HEX") #HEX dye for copepods
+
+worms <- specificity %>%
+  filter(str_detect(Sample, "solidus|cotti|pungitii"), 
+         Target == "FAM") #FAM dye for helminths
+```
+
+#Imaging 
+```{r ggplot comparison}
+
+cope_compare %>%
+  ggplot(aes(x = Genus)) +
+  geom_hline(yintercept = 2000, linetype = "dashed", colour = "grey")+
+  #Copepods (Black)
+  geom_jitter(width = 0.1, height = 0,aes(y = `Ch2 Amplitude`), 
+              fill = "grey",
+              colour = "black", 
+              alpha = 0.1, shape = 21) +
+    labs(y = expression("Amplitude of fluorescence"))
+
+
+worm_compare %>%
+  ggplot(aes(x = Species)) +
+  geom_hline(yintercept = 5500, linetype = "dashed", colour = "grey")+
+  #Copepods (Black)
+  geom_jitter(width = 0.1, height = 0,aes(y = `Ch1 Amplitude`), 
+              fill = "#448F30",
+              colour = "#448F30", 
+              alpha = 0.1, shape = 21) +
+    labs(y = expression("Amplitude of fluorescence"))
+
+```
+
+
