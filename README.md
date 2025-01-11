@@ -71,4 +71,6 @@ This is a single replicate 10-3 dilution either calanoid or cyclopoid copepod st
 ## Solidus/Pungitii/Cotti_Example
 This is a single replicate 10-3 dilution either Schistocelphalus solidus/cotti/pungitii standards. This is well-specific information for details on every single droplet that was amplified. 
 
+<img width="1402" alt="Fig1_Annotated" src="https://github.com/user-attachments/assets/c4d47f4e-6f52-4e5b-8b3b-006e61302eac" />
+
 
