@@ -1,0 +1,664 @@
+---
+title: "Needle in a Haystack:: FOUILLOUX2025"
+output:
+  pdf_document: default
+  html_document: default
+date: "2024-08-12"
+---
+
+Hello! Welcome to the paper for the ddPCR primers to identify (and quantify!) Schistocephalus in copepods from field samples.  
+
+#Libraries
+
+```{r Loading Libraries}
+#Libraries
+library(ggplot2)
+library(tidyverse)
+library(dplyr)
+library(readr)
+library(forcats)
+library(ggrepel)
+library(ggpubr)
+```
+
+Set theme for ggplot
+```{r Themes}
+#Theme set
+theme_set(  theme(legend.position = "none",
+                  strip.background = element_rect(fill = "White"),
+                  panel.background = element_rect(fill = "white",
+                                                  colour = "black"), 
+                  panel.grid.major = element_blank(), 
+                  panel.grid.minor = element_blank(), 
+                  text = element_text(size = 14)))
+```
+
+Let's load some data.
+
+#Load Data
+```{r Load Data}
+#whole ddPCR plate
+ddPCR_fullrun <- read_csv("MolecEcology_ddPCRfullrun.csv")
+
+#Specific wells with every single amplitude of every droplet!
+INF_10_2 <- read_csv("Infected_10_2.csv")
+INF_10_2$Order <- as.factor("2")
+INF_10_2$Dilution <- as.factor("2")
+
+INF_10_3 <- read_csv("Infected_10_3.csv")
+INF_10_3$Order <- as.factor("3")
+INF_10_3$Dilution <- as.factor("3")
+
+#Here, we ran 10^-4, -5, -6, dilutions in triplicate so I am just grabbing one representative well. 
+INF_10_4 <- read_csv("Infected_10_4.csv")
+INF_10_4$Order <- as.factor("4")
+INF_10_4$Dilution <- as.factor("4")
+
+INF_10_5 <- read_csv("Infected_10_5.csv")
+INF_10_5$Order <- as.factor("5")
+INF_10_5$Dilution <- as.factor("5")
+
+INF_10_6 <- read_csv("Infected_10_6.csv")
+INF_10_6$Order <- as.factor("6")
+INF_10_6$Dilution <- as.factor("6")
+
+#This is the NTC for the multiplexed reaction.
+NTC_M<- read_csv("NTC_Multiplex.csv")
+NTC_M$Order <- as.factor("7")
+NTC_M$Dilution <- as.factor("0")
+
+#WILD ZOOPLANKTON TOWS
+BLA_10_2 <- read_csv("ZOOP_BLACKLAKE_10_2.csv")
+BLA_10_2$Order <- as.factor("8")
+BLA_10_2$Dilution <- as.factor("2") 
+
+PCH_10_2 <- read_csv("ZOOP_PACHENALAKE_10_2.csv")
+PCH_10_2$Dilution <- as.factor("1") #IT IS NOT -1, BUT -2, BUT IT MAKES GRAPHING EASIER.
+
+BLK_10_0 <- read_csv("WATER_BLACKWATRLAKE.csv")
+BLK_10_0$Dilution <- as.factor("0")
+
+```
+
+Great, let's tidy up some data, shall we?
+
+Importantly, here you will see we create the *multiplex_standard* which is composed of *well-specific* reactions (remember, in ddPCR one well has over 10,000 PCR reactions!) of increasingly dilute samples. This is specifically for samples where we multiplexed both copepod and schistocephalus primers. 
+
+The same logic holds true for the *singleplex_standard*, except here we use samples that used only either the copepod or schistocephalus probes. 
+
+#Tidy Data
+```{r Tidy Data}
+############################################
+#Whole Data Set
+df <- ddPCR_fullrun %>%
+      mutate(Well = as.factor(Well),
+             Sample = as.factor(Sample),
+             Target = as.factor(Target), 
+             Species = ifelse(Target == "FAM", "Schisto", "Copepod"))
+
+#Just the standard 
+#This is from 100 copepods, each exposed to 1 worm. 
+#In the ddPCR plate the order of this is 
+#MULTIPLEXED
+#D05 (10^-2), D06 (10^-3), 
+#B01 (10^-4), B02 (10^-5), B03 (10^-6)
+#D01 (10^-4), D02 (10^-5), D03 (10^-6)
+#F01 (10^-4), F02 (10^-5), F03 (10^-6)
+
+multiplex_standard <- df %>%
+                      filter(Well %in% c(
+                             "D05", #10^-2 dilution
+                             "D06", #10^-3 dilution
+                             "F12", #Multiplex NTC
+                             "B01", "B02", "B03", #REPLICATE 1
+                             "D01", "D02", "D03", #REPLICATE 2
+                             "F01", "F02", "F03")) %>% #REPLICATE 3
+                    separate(Sample, c("Inf", "Copes", "10", "Dilution", "Multiplex"), "_", 
+                    extra = "merge", remove = F) %>%
+                    mutate(Dilution = as.factor(Dilution), 
+                           lnDilution = log(as.numeric(Dilution)+1),
+                           lnConc = log(Concentration +1)) 
+multiplex_standard$Treatment <- as.factor("Multiplex")
+
+
+singleplex_schisto <- df %>%
+                      filter(Well %in% c(
+                             "A01", "A02", "A03", #REPLICATE 1
+                             "C01", "C02", "C03", #REPLICATE 2
+                             "E01", "E02", "E03")) %>% #REPLICATE 3
+                    separate(Sample, c("Inf", "Copes", "10", "Dilution", "Multiplex"), "_", 
+                    extra = "merge", remove = F) %>%
+                    mutate(Dilution = as.factor(Dilution)) %>%
+                    select(Well, Dilution, Target, Species, Sample,
+                           Concentration, AcceptedDroplets, Ratio, 
+                           PoissonRatioMax, FractionalAbundance)
+singleplex_schisto$Treatment <- as.factor("Singleplex")
+
+
+#unexposed singpleplex
+singleplex_copes<- df %>%
+                      filter(Well %in% c(
+                             "A04", "A05", "A06", #REPLICATE 1
+                             "B04", "B05", "B06", #REPLICATE 2
+                             "C04", "C05", "C06")) %>% #REPLICATE 3
+                    separate(Sample, c("Inf", "Copes", "10", "Dilution", "Multiplex"), "_", 
+                    extra = "merge", remove = F) %>%
+                    mutate(Dilution = as.factor(Dilution)) %>%
+                    select(Well, Dilution, Target, Species, 
+                           Concentration, AcceptedDroplets, Ratio, 
+                           PoissonRatioMax, FractionalAbundance)
+singleplex_copes$Treatment <- as.factor("Singleplex")
+
+##############################################################
+# WILD INFECTION #
+wildinfection<- df %>%
+                      filter(Well %in% c(
+                             "A10", "A11", "A12", #PCH, 10^-1 JUNE MULTIPLEX
+                             "B10", "B11", "B12", #PCH, 10^-2 JUNE MULTIPLEX
+                             "C10", "C11", "C12", #BLA, 10^-1 MARCH MULTIPLEX
+                             "D10", "D11", "D12", #BLA, 10^-2 MARCH MULTIPLEX
+                             "E05")) %>% #WATER SAMPLE
+                    separate(Sample, c("Infec", "Copes", "Ten", "Dilution", "Multiplex"), "_", 
+                    extra = "merge", remove = F) %>%
+                    mutate(Dilution = as.factor(Dilution)) %>%
+                    select(Well,Infec, Ten,
+                           Dilution, Target, Species, 
+                           Concentration, AcceptedDroplets, Ratio, 
+                           PoissonRatioMax, FractionalAbundance)
+
+##############################################################
+# Well-specific amplification for each PCR rxn #
+dilution_series<- rbind(INF_10_2, INF_10_3, INF_10_4, INF_10_5, INF_10_6, 
+                        NTC_M,
+                        BLA_10_2)
+
+```
+
+#Tidying Standards
+```{r Multiplex + Singleplex Standards}
+#Generate a table for the summary statistics of each of the dilutions
+multiplex_standard %>%
+group_by(Dilution, Species) %>%
+summarise(mean = mean(Concentration), 
+          mean_d = mean(AcceptedDroplets),
+          median = median(Concentration), 
+          sd = sd(Concentration), 
+          n = n(),
+          se = sd / sqrt(n))
+
+#Generate a table for the summary statistics of each of the dilutions
+#SCHISTOCEPHALUS
+singleplex_schisto%>%
+group_by(Dilution, Species) %>%
+summarise(mean = mean(Concentration),
+          mean_d = mean(AcceptedDroplets),
+          median = median(Concentration), 
+          sd = sd(Concentration), 
+          n = n(),
+          se = sd / sqrt(n))
+
+#Generate a table for the summary statistics of each of the dilutions
+#COPES
+#This is just for **unexposed** copes
+singleplex_copes%>%
+group_by(Dilution, Species) %>%
+summarise(mean = mean(Concentration),
+          mean_d = mean(AcceptedDroplets),
+          median = median(Concentration), 
+          sd = sd(Concentration), 
+          n = n(),
+          se = sd / sqrt(n))
+```
+
+# Graphing dilution series
+Here, dilution 2-6 is accurate (10^-2 to 10^-6); position 7 refers to the NTC and "8" is a field sample. Remember here that Dilution Factor "8" does not mean 10^-8, but was just used to place an actual lake at the farthest end of the x-axis.
+
+This is great to visualize what 100 copes/100 S. solidus look like diluted compared to what a wild zooplankton tow looks like! (gives an idea of how much S. solidus there is compared to copepods!)
+
+```{r Experimental Dilution Series}
+Fig1<-
+dilution_series %>%
+  ggplot(aes(x = Order)) +
+  annotate(geom = "rect", 
+           xmin = 5.5, xmax = 6.5,
+           ymin = -Inf, ymax = Inf, 
+           fill = "lightblue", 
+           alpha = 0.2) +
+  geom_hline(yintercept = 2000, linetype = "dashed", colour = "grey")+
+  geom_jitter(width = 0.1, height = 0, aes(y = `Ch1 Amplitude`), 
+              fill = "green",
+              colour = "darkgreen", 
+              alpha = 0.4, shape = 21) + #FAM, SCHISTO
+  #Copepods (Black)
+  geom_jitter(width = 0.1, height = 0,aes(y = `Ch2 Amplitude`), 
+              fill = "grey",
+              colour = "black", 
+              alpha = 0.1, shape = 21) +  #HEX, COPES
+  labs(y = expression("Amplitude of fluorescence"),
+       x = expression("Dilution factor (10)"^"-x")) +
+  theme(axis.text  = element_text(size = 16), 
+        text = element_text(size = 18))
+
+Fig1
+
+ggsave("Fig1.png", dpi = 300, 
+       height = 6.96, width = 12)
+
+#Looking at the linearity of the standard
+Fig2<-
+ggplot(multiplex_standard, aes(x = lnDilution, 
+                               y = lnConc,
+                               colour = Target))+
+  stat_smooth(method = "glm", 
+              formula = y ~ x, 
+              aes(fill = Target), 
+              alpha = 0.14) +
+  geom_point(size = 3, 
+             shape = 21, 
+             stroke = 1.3, 
+             fill = "white") +
+     stat_cor( aes(color = Target), 
+               label.x = 1.5) +
+  scale_colour_manual(values = c("black", "#448F30")) +
+  scale_fill_manual(values = c("grey", "lightgreen")) +
+ labs(y = expression("Concentration of 18 rRNA gene (ln[gene copies   uL"^"-1"*"])"),
+    x = expression("Dilution factor (ln[10"^"-(2 to 6)"*"])") ) 
+
+Fig2
+
+ggsave("Fig2.png", dpi = 300, 
+       height = 5.5, width = 8)
+```
+
+Figures from above, but just coded in reverse (increasing concentration may be more intuitive to some readers)
+```{r Altered Figures DIB recommendations}
+#DIB mentions that it may be more intuitive to have DNA increasing as concentration rather than a dilution series. Let's have that coded here, just so it is ready to go it we need it. :)
+
+dilution_series$R_Order <- fct_relevel(dilution_series$Order, 
+                                       c("6", "5", "4", "3", "2", 
+                                       "7", "8"))
+levels(dilution_series$R_Order)
+Fig1_rev<-
+dilution_series %>%
+  ggplot(aes(x = R_Order)) +
+  annotate(geom = "rect", 
+           xmin = 5.5, xmax = 6.5,
+           ymin = -Inf, ymax = Inf, 
+           fill = "lightblue", 
+           alpha = 0.2) +
+  geom_hline(yintercept = 2000, linetype = "dashed", colour = "grey")+
+  geom_jitter(width = 0.1, height = 0, aes(y = `Ch1 Amplitude`), 
+              fill = "green",
+              colour = "darkgreen", 
+              alpha = 0.4, shape = 21) + #FAM, SCHISTO
+  #Copepods (Black)
+  geom_jitter(width = 0.1, height = 0,aes(y = `Ch2 Amplitude`), 
+              fill = "grey",
+              colour = "black", 
+              alpha = 0.1, shape = 21) +  #HEX, COPES
+  labs(y = expression("Amplitude of fluorescence"),
+       x = expression("Dilution factor (10)"^"x"))
+
+Fig1_rev
+
+ggsave("Fig1_Rev.png", dpi = 300, 
+       height = 6.96, width = 12)
+
+## Fig 2
+#Looking at the linearity of the standard
+Fig2_rev<-
+ggplot(multiplex_standard, aes(x = lnDilution, 
+                               y = lnConc,
+                               colour = Target))+
+  stat_smooth(method = "glm", 
+              formula = y ~ x, 
+              aes(fill = Target), 
+              alpha = 0.14) +
+  geom_point(size = 3, 
+             shape = 21, 
+             stroke = 1.3, 
+             fill = "white") +
+  scale_colour_manual(values = c("black", "#448F30")) +
+  scale_fill_manual(values = c("grey", "lightgreen")) +
+ labs(y = expression("Concentration of 18 rRNA gene (ln[gene copies   uL"^"-1"*"])"),
+    x = expression("Concentration factor (ln[10"^"-(6 to 2)"*"])") ) +
+  scale_x_reverse() +
+    stat_cor( aes(color = Target), 
+             label.x = -1.8) 
+
+Fig2_rev
+
+ggsave("Fig2_Rev.png", dpi = 300, 
+       height = 5.5, width = 8)
+
+
+```
+
+#DNA quantification
+DNA concentration is estimated by modeling a Poisson distribution. The formula used for Poisson modelling is
+
+Copies per droplet = -ln(1-p)
+where p = fraction of positive droplets.
+
+*Question: How much 18s rRNA is in 100 copepods?*
+# Cyclopoid copepod standard
+Here we are looking at DNA from both infected and unexposed standards to try to understand how much DNA is in 100 copepods. 
+
+The best solution is to simply average between all of the standards.
+
+```{r 100 copepods, Simple Stats + Supp. Graphs}
+
+#We will take data from unexposed copes (singleplex_copes)
+#We will take data from infected copes (multiplex_standard)
+
+multiplex_standard_copes <- multiplex_standard %>%
+                            filter(Species == "Copepod") %>%
+                            filter(!Well == "F12") %>% #this is the NTC, we dont need that!
+                            select(!c(lnDilution, lnConc))
+
+#this is from 100 copes from JW's lab that I took back in Feb 2024. Just to compare that we get similar results across different extraction days + populations
+add_copes <- df %>%
+             filter(Well %in% c("F07", "F08", "F09", "F10")) %>%
+                    separate(Sample, c("Inf", "Copes", "Ten", "Dilutions", "Dilution", "Plex"), "_", 
+                    extra = "merge", remove = F) %>%
+                    mutate(Dilution = as.factor(Dilution)) %>%
+                    select(Well, Dilution, Target, Species, 
+                           Concentration, AcceptedDroplets, Ratio, 
+                           PoissonRatioMax, FractionalAbundance)
+add_copes$Treatment <- as.factor("Singleplex-JW")
+
+multiplex_standard_copes_short <- multiplex_standard_copes %>% select(!c("Sample", "Inf", "Copes", "10", "Multiplex"))
+
+copes_100<- rbind(singleplex_copes, multiplex_standard_copes_short, 
+                  add_copes) 
+
+copes_100<- copes_100 %>%
+            filter(!Dilution %in% c(2, 3))  #too concentrated for ddPCR
+
+#Average copepod concentration across three standards after correcting for dilution
+copes_100 %>%
+#group_by(Dilution) %>% #Treatment
+#Together, when correcting for dilution we see:
+mutate(corr = 
+             case_when(Dilution == "4" ~ Concentration *10000, 
+                       Dilution == "5" ~ Concentration *100000,
+                       Dilution == "6" ~ Concentration *1000000)) %>%
+summarise(mean = mean(corr),
+          mean_d = mean(AcceptedDroplets),
+          median = median(corr), 
+          sd = sd(corr), 
+          n = n(),
+          se = sd / sqrt(n),
+          CV = (sd/(mean*100)))  
+
+#Let's look at it
+ggplot(copes_100, aes(x = Dilution, y = Concentration, 
+                      colour = Treatment)) +
+  geom_point() +
+  theme(legend.position = "right")
+
+#### SIMPLE STATS ####
+#Do we get more copepod DNA in infected or unexposed treatments?
+
+#First we are looking at the 10^-4 dilution, for which we only have singleplex and multiplex data from two standards.
+copes_stat1<- copes_100 %>%
+               #removing dilutions that we don't have for the singleplex
+               filter(Treatment == "Multiplex") %>%
+               select(Concentration)
+
+copes_stat2<- copes_100 %>%
+               #removing dilutions that we don't have for the singleplex
+               filter(Treatment == "Singleplex") %>%
+               select(Concentration)
+
+t.test(copes_stat1, copes_stat2, alternative = "two.sided")
+
+#how about a simple ANOVA?
+library(car)
+car::Anova(aov(Concentration ~ Treatment, data = copes_100))
+
+```
+
+*Question: How much 18s rRNA is in 100 S. solidus?*
+
+# S. solidus standard
+Here we are looking at DNA from both singplex and multiplex reactions. Unfortunately, we only have this single standard (which took over 4 months to make), so our estimates are confined to single standard which we ran as both a combination of HEX/FAM probes and then just FAM probes to see if multiplexing inhibited S. solidus detection.
+
+Here, the assay repeatability was determined by the % coefficient of variation (%CV = concentration standard deviation/concentration mean * 100) between the replicates. (from Hiillos et al. 2021)
+
+The estimate of S. solidus DNA was based solely on the 1:1 infection standard. Despite the %CV within each dilution step being very low, when correcting for the dilution factor we find that S. solidus gene estimates are an order of magnitude smaller in more dilute samples (i.e., 10-5 and 10-6, see first tibble in chunk below). 
+
+Based on the corrected average from the less diluted replicates (10-2 - 10-4) we estimate 100 encysted S. solidus to have an average of 159,857 (se = 22,887) 18S rRNA gene copies/μL. 
+
+```{r 100 S. solidus, Simple Stats, CV}
+
+#First, let's look at all of the Schisto samples. Note that there, the samples that have been diluted 10*(-5) and 10*(-6) are an order of magnitude smaller (after correction) than the less dilute samples. 
+
+schisto<- full_join(multiplex_standard, singleplex_schisto) %>%
+#Let's get all the wells that have schisto related data
+          select(!c("Copes", "Inf", "10", "Multiplex", "Treatment", 
+                    "Ratio", "PoissonRatioMax", "FractionalAbundance", 
+                    "lnDilution", "lnConc"))
+
+schisto %>%
+        filter(Species == "Schisto") %>% #here we are looking at worms only
+        filter(!Sample == "NTC_M") %>% #Remove the NTC from calculations
+        filter(!Dilution %in% c("5", "6")) %>% 
+#lower dilutions are an order of magnitude off when correcting, so let's just remove them.
+        mutate(corr = case_when(Dilution == "2" ~ Concentration *100,
+                              Dilution == "3" ~ Concentration *1000, 
+                              Dilution == "4" ~ Concentration *10000, 
+                              Dilution == "5" ~ Concentration *100000,
+                              Dilution == "6" ~ Concentration *1000000)) %>%
+  #group_by(Dilution) %>% # (!!!) turn this off when you want overall copy estimate (!!!)
+  # turn "summarize" off to see all the inidividual samples
+      summarise(mean = mean(corr),
+          mean_d = mean(AcceptedDroplets),
+          median = median(corr), 
+          sd = sd(corr), 
+          n = n(),
+          se = sd / sqrt(n), 
+          CV = (sd/(mean*100))) 
+
+```
+
+
+**Question: How much DNA do we see in the wild?**
+
+#Wild zooplankton tows, graphs and stats
+```{r Wild Zooplankton Tows, Parasite Load}
+
+#Generate a table for the summary statistics of each of the dilutions
+#COPES
+#remember BLA is 10^-1, 
+#remember PCH is 10^-1, 
+#Water sample from BLK is undiluted
+
+#If you are curious where these numbers are coming from, please see the chunks below!
+#Specifically, "100 copepods, Simple Stats + Supp. Graphs" (see Chunk 8+9) it will walk you through all of the calculations. 
+
+cope = (340955)/100 #CHUNK 8 = this is based our gene copy estimate from our standard 
+worm = (159857)/100 #CHUNK 9 = this is based our gene copy estimate from our standard
+
+wildinfection1<-
+wildinfection %>%
+  group_by(Infec, Species, Dilution, Ten) %>%
+         mutate(corr = case_when(
+                       Ten == "1" ~ Concentration * 10,
+                       Ten == "2" ~ Concentration * 100,
+                       is.na(Ten) ~ Concentration )) %>%
+        summarise(
+                mean = mean(corr),
+                sd = sd(corr),
+                n = n(),
+                se = sd / sqrt(n),
+                worms = mean / worm,
+                copes = mean / cope,
+               .groups = "drop") %>%
+  #Here we the more concentrated schito estimate (10^-1) and the less diluted copepod estimate (10^-2)
+      filter((Species == "Schisto" & Ten == "1") | 
+               (Species == "Copepod" & Ten == "2") |
+                is.na(Ten)) %>%
+  # blank out the irrelevant estimate
+          mutate(worms = ifelse(Species == "Copepod", NA, worms),
+                    copes = ifelse(Species == "Schisto", NA, copes)) %>%
+        group_by(Infec) %>%
+                mutate(
+                   parasite_load = 
+                    (mean[Species == "Schisto"]/ mean[Species == "Copepod"]),  
+                   norm_infection_intensity = 
+                     ifelse(Species == "Schisto", 
+                            worms / copes[Species == "Copepod"], NA)) %>%
+          ungroup()
+
+
+print(wildinfection1)
+
+
+#What happens here when you use the 10^-1 rows is that you don't get the seperation of the copepods because there are just too doggon many of them!
+BLA_10_2_short <- BLA_10_2 %>% select(!c("Order"))
+  
+wild<- rbind(BLK_10_0,PCH_10_2, BLA_10_2_short)
+
+Fig_3<- 
+  wild %>%
+  ggplot(aes(x = Dilution)) +
+  geom_hline(yintercept = 2000, linetype = "dashed", colour = "grey")+
+  geom_jitter(width = 0.1, height = 0, aes(y = `Ch1 Amplitude`), 
+              fill = "green",
+              size = 2,
+              colour = "darkgreen", 
+              alpha = 0.4, shape = 21) + #FAM, SCHISTO
+  #Copepods (Black)
+  geom_jitter(width = 0.1, height = 0,aes(y = `Ch2 Amplitude`), 
+              fill = "grey",
+              size = 2,
+              colour = "black", 
+              alpha = 0.1, shape = 21) +  #HEX, COPES
+  ylim(0, 7500)+
+  labs(y = expression("Amplitude of fluorescence"),
+       x = expression(""))+
+  theme(axis.text  = element_text(size = 16), 
+        text = element_text(size = 18))
+
+Fig_3
+
+ggsave("Fig_3.png", dpi = 600, 
+       height = 6.5, width = 9)
+
+```
+
+**Question: How can ddPCR concentrations represent parasite loads?**
+# Reviewer Round 1 Figure Responses
+
+Following Anderson and May 1978, "We define H(t) and P(t) to be the magnitudes of the host and parasite populations, respectively at time t; the average number of parasites per host is then P(t)/H(t)."
+
+```{r Reviewer Round 1: Parasite loads based on molecular data}
+## After reviewer comments, let's talk more about infection levels per lake and what we have come to define as “the mean parasite load, P(t)/H(t)” 
+
+# INFECTION LEVEL/LAKE
+Fig_4a<- 
+  wildinfection1 %>%
+  filter(Species == "Schisto") %>%
+  ggplot(aes(x = Infec, y = mean)) +
+    geom_errorbar(aes(ymin = mean - se, ymax = mean + se),
+                width = 0.4, linewidth = 1,
+                colour = "darkgreen", alpha = 0.4) +
+   geom_point( fill = "green",
+              size = 10,
+              colour = "darkgreen", 
+              alpha = 1, shape = 21) +
+    labs(
+    y = expression(
+      "Lake-level estimate of parasites (copies·"*mu*"L"^-1*")"),
+    x = "") +
+  theme(axis.text = element_text(size = 20), 
+        text = element_text(size = 22))
+
+Fig_4a
+  
+ggsave("Fig_4a.png", dpi = 600, 
+       height = 6.75, width = 7.22)
+
+Fig_4b<- 
+  wildinfection1 %>%
+  filter(Species == "Copepod") %>%
+  ggplot(aes(x = Infec, y = mean)) +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se),
+                     width = 0.4, linewidth = 1,
+                colour = "black", alpha = 0.4) +
+ geom_point( fill = "darkgrey",
+              size = 10,
+              colour = "black", 
+              alpha = 1, shape = 21) +
+    labs(
+    y = expression(
+      "Lake-level estimate of hosts (copies·"*mu*"L"^-1*")"),
+    x = "") +
+  theme(axis.text = element_text(size = 20), 
+        text = element_text(size = 22))
+
+Fig_4b
+  
+  
+ggsave("Fig_4b.png", dpi = 600, 
+       height = 6.75, width = 7.9)
+                
+#Parasite load
+
+#Again guided by theory, we use the canonical definition (copies μL-1  host DNA  DNA/copies μL-1  host DNA). 
+
+Fig_4c<-
+wildinfection1 %>%
+    ggplot(aes(x = Infec, y = parasite_load)) +
+        geom_point( fill = "darkgreen",
+              size = 13,
+              colour = "darkgreen", 
+              alpha = 1, shape = 21) +
+        labs(
+             y = expression(
+               "Mean parasite load (copies" %.% mu * L^{-1} * " parasite 18s rRNA /" 
+               * " " * " " * "copies" %.% mu * L^{-1} * " host 18s rRNA)"),
+             x = "")+
+  theme(axis.text = element_text(size = 20), 
+        text = element_text(size = 22))
+
+Fig_4c
+  
+ggsave("Fig_4c.png", dpi = 600, 
+       height = 6.75, width = 10)
+
+
+```
+
+
+**Question: Does multiplexing ddPCR reactions inhibit the detection of rare DNA?**
+
+# Multiplex vs. singleplex
+
+We have S. solidus DNA quantification for reactions that were singleplexed versus multiplexed. How different is the quantification of DNA between these groups?
+
+Here, a ttest is the most appropriate test, as we are using the same DNA extract just with different primers.
+
+```{r Simple Schisto Stats: single vs. multiplex + Graph}
+####################
+schisto<- full_join(multiplex_standard, singleplex_schisto)
+levels(schisto$Treatment)
+
+################### ############### ###################
+#Do we get more schisto DNA in multiplexed or singplexed reactions?
+schisto_stat1<- schisto %>%
+               #removing dilutions that we don't have for the singleplex
+               filter(!Dilution %in% c("2", "3")) %>%
+               filter(Species == "Schisto", 
+                      Treatment == "Multiplex") %>%
+               select(Concentration)
+
+schisto_stat2<- schisto %>%
+               filter(Species == "Schisto", 
+                      Treatment == "Singleplex") %>%
+               select(Concentration)
+
+t.test(schisto_stat1, schisto_stat2, alternative = "two.sided")
+
+```
