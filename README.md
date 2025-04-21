@@ -2,14 +2,14 @@
 
 .readme
 
-Last updated: 11 JAN 2025 BY CHLOE A. FOUILLOUX
+Last updated: 21 APR 2025 BY CHLOE A. FOUILLOUX
 
 18S DDPCR: Creation of ddPCR primers to detect both Cyclopoid copepods and S. solidus helminths. Generation of standards, quantification of infection rates in natural samples.
 
 #Code Files
 
 Main text code is:
- > MolEco_ddPCR_Paper2024.Rmd
+ > MolEco_ddPCR_Paper2025.Rmd
 
 Supplementary Codes testing primer/probe-primer specificity on related spcies is 
   > Supp_Code_ProbePrimer.Rmd
